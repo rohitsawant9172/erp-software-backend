@@ -16,8 +16,7 @@ RUN apk add --no-cache \
     libzip-dev \
     supervisor
 
-# PHP extensions that need explicit install
-# (tokenizer, ctype, fileinfo, dom, xml are built-in to php:8.2-fpm-alpine)
+# PHP extensions (do NOT list built-ins: tokenizer, ctype, fileinfo, dom, xml)
 RUN docker-php-ext-configure gd \
     --with-freetype \
     --with-jpeg \
@@ -33,15 +32,15 @@ RUN docker-php-ext-configure gd \
     intl \
     zip
 
-# Install Composer
+# Composer
 COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# Copy composer files first for layer caching
+# Copy composer files first (layer caching)
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies
+# Install dependencies
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
@@ -58,43 +57,16 @@ RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
     && chmod -R 755 /var/www/html/bootstrap/cache
 
-# Nginx config
-RUN printf 'server {\n\
-    listen 80;\n\
-    root /var/www/html/public;\n\
-    index index.php;\n\
-    location / {\n\
-    try_files $uri $uri/ /index.php?$query_string;\n\
-    }\n\
-    location ~ \\.php$ {\n\
-    fastcgi_pass 127.0.0.1:9000;\n\
-    fastcgi_index index.php;\n\
-    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n\
-    include fastcgi_params;\n\
-    }\n\
-    }\n' > /etc/nginx/http.d/default.conf
+# Nginx config — port replaced at startup by $PORT
+COPY nginx.conf /etc/nginx/http.d/default.conf
 
 # Supervisor config
-RUN printf '[supervisord]\n\
-    nodaemon=true\n\
-    [program:nginx]\n\
-    command=nginx -g "daemon off;"\n\
-    autostart=true\n\
-    autorestart=true\n\
-    stderr_logfile=/dev/stderr\n\
-    stderr_logfile_maxbytes=0\n\
-    stdout_logfile=/dev/stdout\n\
-    stdout_logfile_maxbytes=0\n\
-    [program:php-fpm]\n\
-    command=php-fpm\n\
-    autostart=true\n\
-    autorestart=true\n\
-    stderr_logfile=/dev/stderr\n\
-    stderr_logfile_maxbytes=0\n\
-    stdout_logfile=/dev/stdout\n\
-    stdout_logfile_maxbytes=0\n' > /etc/supervisord.conf
+COPY supervisord.conf /etc/supervisord.conf
 
-EXPOSE 80
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
 COPY docker-start.sh /usr/local/bin/start
 RUN chmod +x /usr/local/bin/start

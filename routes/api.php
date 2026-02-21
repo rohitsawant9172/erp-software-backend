@@ -8,6 +8,9 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 
+// Health check (no auth required — used by Docker HEALTHCHECK + platform monitors)
+Route::get('/health', fn () => response()->json(['status' => 'ok']));
+
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
