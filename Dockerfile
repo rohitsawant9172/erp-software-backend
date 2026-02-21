@@ -1,6 +1,6 @@
 FROM php:8.2-fpm-alpine
 
-# Install system dependencies
+# System deps
 RUN apk add --no-cache \
     nginx \
     curl \
@@ -8,7 +8,6 @@ RUN apk add --no-cache \
     libjpeg-turbo-dev \
     libwebp-dev \
     freetype-dev \
-    zip \
     unzip \
     git \
     oniguruma-dev \
@@ -17,8 +16,12 @@ RUN apk add --no-cache \
     libzip-dev \
     supervisor
 
-# Install PHP extensions
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+# PHP extensions that need explicit install
+# (tokenizer, ctype, fileinfo, dom, xml are built-in to php:8.2-fpm-alpine)
+RUN docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg \
+    --with-webp \
     && docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \
@@ -27,23 +30,18 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     bcmath \
     gd \
     opcache \
-    xml \
-    dom \
-    fileinfo \
     intl \
-    zip \
-    tokenizer \
-    ctype
+    zip
 
 # Install Composer
 COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# Copy composer files first (layer caching)
+# Copy composer files first for layer caching
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies (no dev, no scripts to avoid artisan calls pre-.env)
+# Install PHP dependencies
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
@@ -52,43 +50,52 @@ RUN composer install \
     --prefer-dist \
     --ignore-platform-reqs
 
-# Copy application code
+# Copy application
 COPY . .
 
-# Set permissions
+# Permissions
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
     && chmod -R 755 /var/www/html/bootstrap/cache
 
 # Nginx config
-RUN echo 'server { \
-    listen 80; \
-    root /var/www/html/public; \
-    index index.php; \
-    location / { try_files $uri $uri/ /index.php?$query_string; } \
-    location ~ \.php$ { \
-    fastcgi_pass 127.0.0.1:9000; \
-    fastcgi_index index.php; \
-    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
-    include fastcgi_params; \
-    } \
-    }' > /etc/nginx/http.d/default.conf
+RUN printf 'server {\n\
+    listen 80;\n\
+    root /var/www/html/public;\n\
+    index index.php;\n\
+    location / {\n\
+    try_files $uri $uri/ /index.php?$query_string;\n\
+    }\n\
+    location ~ \\.php$ {\n\
+    fastcgi_pass 127.0.0.1:9000;\n\
+    fastcgi_index index.php;\n\
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n\
+    include fastcgi_params;\n\
+    }\n\
+    }\n' > /etc/nginx/http.d/default.conf
 
-# Supervisor config to run nginx + php-fpm together
-RUN echo '[supervisord]' > /etc/supervisord.conf && \
-    echo 'nodaemon=true' >> /etc/supervisord.conf && \
-    echo '[program:nginx]' >> /etc/supervisord.conf && \
-    echo 'command=nginx -g "daemon off;"' >> /etc/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo '[program:php-fpm]' >> /etc/supervisord.conf && \
-    echo 'command=php-fpm' >> /etc/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisord.conf
+# Supervisor config
+RUN printf '[supervisord]\n\
+    nodaemon=true\n\
+    [program:nginx]\n\
+    command=nginx -g "daemon off;"\n\
+    autostart=true\n\
+    autorestart=true\n\
+    stderr_logfile=/dev/stderr\n\
+    stderr_logfile_maxbytes=0\n\
+    stdout_logfile=/dev/stdout\n\
+    stdout_logfile_maxbytes=0\n\
+    [program:php-fpm]\n\
+    command=php-fpm\n\
+    autostart=true\n\
+    autorestart=true\n\
+    stderr_logfile=/dev/stderr\n\
+    stderr_logfile_maxbytes=0\n\
+    stdout_logfile=/dev/stdout\n\
+    stdout_logfile_maxbytes=0\n' > /etc/supervisord.conf
 
 EXPOSE 80
 
-# Startup script: run artisan commands then launch services
 COPY docker-start.sh /usr/local/bin/start
 RUN chmod +x /usr/local/bin/start
 
