@@ -13,19 +13,27 @@ RUN apk add --no-cache \
     git \
     oniguruma-dev \
     libxml2-dev \
+    icu-dev \
+    libzip-dev \
     supervisor
 
 # Install PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) \
-        pdo_mysql \
-        mbstring \
-        exif \
-        pcntl \
-        bcmath \
-        gd \
-        opcache \
-        xml
+    pdo_mysql \
+    mbstring \
+    exif \
+    pcntl \
+    bcmath \
+    gd \
+    opcache \
+    xml \
+    dom \
+    fileinfo \
+    intl \
+    zip \
+    tokenizer \
+    ctype
 
 # Install Composer
 COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
@@ -41,7 +49,8 @@ RUN composer install \
     --optimize-autoloader \
     --no-scripts \
     --no-interaction \
-    --prefer-dist
+    --prefer-dist \
+    --ignore-platform-reqs
 
 # Copy application code
 COPY . .
@@ -58,12 +67,12 @@ RUN echo 'server { \
     index index.php; \
     location / { try_files $uri $uri/ /index.php?$query_string; } \
     location ~ \.php$ { \
-        fastcgi_pass 127.0.0.1:9000; \
-        fastcgi_index index.php; \
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
-        include fastcgi_params; \
+    fastcgi_pass 127.0.0.1:9000; \
+    fastcgi_index index.php; \
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
+    include fastcgi_params; \
     } \
-}' > /etc/nginx/http.d/default.conf
+    }' > /etc/nginx/http.d/default.conf
 
 # Supervisor config to run nginx + php-fpm together
 RUN echo '[supervisord]' > /etc/supervisord.conf && \
